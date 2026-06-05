@@ -190,6 +190,8 @@ dinov3_vitl16 = torch.hub.load(REPO_DIR, 'dinov3_vitl16', source='local', weight
 dinov3_vit7b16 = torch.hub.load(REPO_DIR, 'dinov3_vit7b16', source='local', weights=<CHECKPOINT/URL/OR/PATH>)
 ```
 
+Note: ConvNeXt-V2 support used by distillation configs is vendored in this repository (under `dinov3/models/convnextv2.py`) and has no runtime dependency on the separate `ConvNeXt-V2` project folder.
+
 ### Pretrained backbones (via Hugging Face [Transformers](https://huggingface.co/docs/transformers/))
 
 All the backbones are available in the [DINOv3](https://huggingface.co/collections/facebook/dinov3-68924841bd6b561778e31009) collection on Hugging Face Hub and supported via the Hugging Face [Transformers](https://huggingface.co/docs/transformers/index) library (with released packages from version 4.56.0). Please refer to the corresponding documentation for usage, but below is a short example that demonstrates how to obtain an image embedding with either [Pipeline] or the [AutoModel] class.
