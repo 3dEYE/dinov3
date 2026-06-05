@@ -79,6 +79,16 @@ if [[ -z "$PYTHON_BIN" ]]; then
   fi
 fi
 
+"$PYTHON_BIN" -c '
+import sys
+
+if sys.version_info < (3, 11):
+    raise SystemExit(
+        f"dinov3 requires Python >= 3.11, but got {sys.version.split()[0]}. "
+        "Pass --python-bin /path/to/python3.11 or use a 3.11 virtual environment."
+    )
+'
+
 if [[ ! -d "$DATA_ROOT" ]]; then
   echo "Data root does not exist: $DATA_ROOT" >&2
   exit 1

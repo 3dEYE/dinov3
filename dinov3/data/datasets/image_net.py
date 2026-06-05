@@ -225,6 +225,7 @@ class ImageNet(ExtendedVisionDataset):
         entries_array = np.empty(sample_count, dtype=dtype)
 
         if split == ImageNet.Split.TEST:
+            test_class_index = np.iinfo(np.uint32).max
             old_percent = -1
             for index in range(sample_count):
                 percent = 100 * (index + 1) // sample_count
@@ -233,7 +234,7 @@ class ImageNet(ExtendedVisionDataset):
                     old_percent = percent
 
                 actual_index = index + 1
-                class_index = np.uint32(-1)
+                class_index = test_class_index
                 class_id, class_name = "", ""
                 entries_array[index] = (actual_index, class_index, class_id, class_name)
         else:
