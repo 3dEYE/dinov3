@@ -272,23 +272,46 @@ def init_fsdp_model_from_checkpoint(
     keys_not_sharded: List[str] | None = None,
     process_group: dist.ProcessGroup = None,
 ):
+    if skip_load_keys is None:
+        skip_load_keys = []
+    if keys_not_sharded is None:
+        keys_not_sharded = []
+
+    def _is_key_not_sharded(key: str) -> bool:
+        for key_not_sharded in keys_not_sharded:
+            if key_not_sharded in key:
+                return True
+            if key_not_sharded.startswith("backbone.") and key_not_sharded[len("backbone.") :] in key:
+                return True
+        return False
+
     if not Path(checkpoint_path).is_dir():  # PyTorch standard checkpoint
         logger.info(f"Loading pretrained weights from {checkpoint_path}")
         checkpoint = torch.load(checkpoint_path, map_location="cpu")
-        if "teacher" in checkpoint:
-            chkpt = checkpoint["teacher"]
-        elif isinstance(checkpoint, dict):
-            # Allow loading plain backbone checkpoints (e.g. hub checkpoints)
-            # that are not wrapped in a top-level "teacher" key.
-            chkpt = checkpoint
-        else:
+        if not isinstance(checkpoint, dict):
             raise RuntimeError(
                 f"Unsupported checkpoint format at {checkpoint_path}: expected a dict, "
                 f"got {type(checkpoint)}"
             )
+        load_backbone_only = "teacher" not in checkpoint
+        if load_backbone_only:
+            if not (isinstance(model, torch.nn.ModuleDict) and "backbone" in model):
+                top_keys = list(checkpoint.keys())[:10]
+                raise RuntimeError(
+                    "Checkpoint is missing top-level key 'teacher', and target model has no backbone submodule. "
+                    f"Top-level keys sample: {top_keys}"
+                )
+            logger.warning(
+                "Checkpoint has no top-level 'teacher' key. "
+                "Loading it as backbone-only weights into model['backbone']."
+            )
+            chkpt = checkpoint
+        else:
+            chkpt = checkpoint["teacher"]
 
         chkpt = {k.replace("module.", ""): v for k, v in chkpt.items()}
-        chkpt = {k.replace("backbone.", ""): v for k, v in chkpt.items()}
+        if load_backbone_only:
+            chkpt = {k.replace("backbone.", ""): v for k, v in chkpt.items()}
         from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 
         if process_group is None:
@@ -302,18 +325,23 @@ def init_fsdp_model_from_checkpoint(
         chkpt = {
             key: (
                 torch.distributed.tensor.distribute_tensor(tensor, world_mesh, src_data_rank=None)
-                if not any(key_not_sharded in key for key_not_sharded in keys_not_sharded)
+                if not _is_key_not_sharded(key)
                 else tensor
             )
             for key, tensor in chkpt.items()
         }
-        model.load_state_dict(
-            {
-                key: tensor
-                for key, tensor in chkpt.items()
-                if not any(skip_load_key in key for skip_load_key in skip_load_keys)
-            }
-        )
+
+        filtered_chkpt = {
+            key: tensor
+            for key, tensor in chkpt.items()
+            if not any(skip_load_key in key for skip_load_key in skip_load_keys)
+        }
+
+        if load_backbone_only:
+            load_msg = model["backbone"].load_state_dict(filtered_chkpt, strict=False)
+            logger.info(f"Backbone-only checkpoint loaded with msg: {load_msg}")
+        else:
+            model.load_state_dict(filtered_chkpt)
     else:  # DCP checkpoint
         load_checkpoint(ckpt_dir=checkpoint_path, model=model, process_group=process_group)
 

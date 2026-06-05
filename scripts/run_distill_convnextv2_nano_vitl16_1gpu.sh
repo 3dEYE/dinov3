@@ -106,6 +106,33 @@ if [[ ! -f "$REPO_ROOT/$CONFIG_FILE" ]]; then
   exit 1
 fi
 
+"$PYTHON_BIN" -c '
+import torch
+
+ckpt_path = r"'"$TEACHER_CKPT"'"
+checkpoint = torch.load(ckpt_path, map_location="cpu")
+if not isinstance(checkpoint, dict):
+  raise SystemExit(
+    f"Teacher checkpoint must be a dict-like checkpoint, got {type(checkpoint)} at {ckpt_path}"
+  )
+if "teacher" not in checkpoint:
+  top_keys = list(checkpoint.keys())[:10]
+  likely_backbone = any(
+    key.startswith(("blocks.", "patch_embed.", "backbone."))
+    for key in top_keys
+  )
+  if not likely_backbone:
+    raise SystemExit(
+      "Teacher checkpoint is incompatible for distillation: missing top-level key 'teacher', "
+      "and it does not look like a backbone state_dict. "
+      f"Current top keys sample: {top_keys}"
+    )
+  print(
+    "[preflight] Teacher checkpoint has no top-level 'teacher' key; "
+    "will load backbone-only teacher weights."
+  )
+'
+
 mkdir -p "$OUTPUT_DIR"
 
 export PYTHONPATH="$REPO_ROOT"
