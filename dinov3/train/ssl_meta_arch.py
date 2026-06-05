@@ -5,6 +5,7 @@
 
 import gc
 import logging
+import math
 from functools import partial
 
 import torch
@@ -44,6 +45,7 @@ class SSLMetaArch(nn.Module):
         assert cfg.compute_precision.sharding_strategy == "SHARD_GRAD_OP"
 
         self.cfg = cfg
+        self._warned_teacher_patch_resize = False
 
         student_model_dict = dict()
         teacher_model_dict = dict()
@@ -274,7 +276,6 @@ class SSLMetaArch(nn.Module):
         assert distillation_cfg.dino.head_n_prototypes == self.cfg.dino.head_n_prototypes, (
             f"{distillation_cfg.dino.head_n_prototypes} != {self.cfg.dino.head_n_prototypes}"
         )
-        assert distillation_cfg.student.patch_size == self.cfg.student.patch_size
 
         teacher_model_dict = dict()
 
@@ -384,6 +385,7 @@ class SSLMetaArch(nn.Module):
         # Teacher output (will trigger an all-gather to unshard)
         teacher_global = self.get_teacher_output(
             global_crops.unflatten(0, (n_global_crops, B)),
+            student_masks=masks,
             teacher_temp=teacher_temp,
             n_masked_patches_tensor=n_masked_patches_tensor,
             mask_indices_list=mask_indices_list,
@@ -433,6 +435,7 @@ class SSLMetaArch(nn.Module):
         self,
         images,
         *,
+        student_masks,
         upperbound,
         mask_indices_list,
         teacher_temp,
@@ -445,6 +448,37 @@ class SSLMetaArch(nn.Module):
         cls = backbone_out["x_norm_clstoken"]  # [n_crops * B, D]
         reg = backbone_out["x_storage_tokens"]  # [n_crops * B, R, D]
         ibot_patch = backbone_out["x_norm_patchtokens"]  # [n_crops * B, P, D]
+
+        # Align teacher patch grid to the student masking grid when patch resolutions differ
+        # (e.g. ViT-L/16 teacher and ConvNeXtV2 student with patch_size=32 at 224 crops).
+        student_patch_tokens = student_masks.shape[1]
+        teacher_patch_tokens = ibot_patch.shape[1]
+        if teacher_patch_tokens != student_patch_tokens:
+            teacher_hw = int(math.isqrt(teacher_patch_tokens))
+            student_hw = int(math.isqrt(student_patch_tokens))
+            if teacher_hw * teacher_hw != teacher_patch_tokens or student_hw * student_hw != student_patch_tokens:
+                raise RuntimeError(
+                    "Teacher/student patch token counts are not square grids: "
+                    f"teacher={teacher_patch_tokens}, student={student_patch_tokens}."
+                )
+            ibot_patch_hw = ibot_patch.transpose(1, 2).reshape(-1, ibot_patch.shape[2], teacher_hw, teacher_hw)
+            ibot_patch_hw = torch.nn.functional.interpolate(
+                ibot_patch_hw,
+                size=(student_hw, student_hw),
+                mode="bilinear",
+                align_corners=False,
+                antialias=False,
+            )
+            ibot_patch = ibot_patch_hw.flatten(2).transpose(1, 2)
+            if not self._warned_teacher_patch_resize:
+                logger.warning(
+                    "Resized teacher patch tokens from %dx%d to %dx%d to match student masking grid.",
+                    teacher_hw,
+                    teacher_hw,
+                    student_hw,
+                    student_hw,
+                )
+                self._warned_teacher_patch_resize = True
 
         # IBOT head only on patches that are masked for the student
         flat_ibot_patch = ibot_patch.flatten(0, 1)
