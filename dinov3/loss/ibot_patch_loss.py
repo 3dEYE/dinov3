@@ -30,7 +30,10 @@ class SinkhornKnoppTeacher(nn.Module):
     def forward(self, teacher_output, teacher_temp, n_masked_patches_tensor, n_iterations=3):
         teacher_output = teacher_output.float()
         # world_size = dist.get_world_size() if dist.is_initialized() else 1
-        Q = torch.exp(teacher_output / teacher_temp).t()  # Q is K-by-B for consistency with notations from our paper
+        scaled = teacher_output / teacher_temp
+        # Numerical stabilization: avoid inf in exp for large logits.
+        scaled = scaled - scaled.max(dim=-1, keepdim=True).values
+        Q = torch.exp(scaled).t()  # Q is K-by-B for consistency with notations from our paper
         # B = Q.shape[1] * world_size # number of samples to assign
         B = n_masked_patches_tensor
         dist.all_reduce(B, group=get_process_subgroup())
@@ -40,18 +43,18 @@ class SinkhornKnoppTeacher(nn.Module):
         sum_Q = torch.sum(Q)
         if dist.is_initialized():
             dist.all_reduce(sum_Q, group=get_process_subgroup())
-        Q /= sum_Q
+        Q /= sum_Q.clamp_min(torch.finfo(Q.dtype).eps)
 
         for _ in range(n_iterations):
             # normalize each row: total weight per prototype must be 1/K
             sum_of_rows = torch.sum(Q, dim=1, keepdim=True)
             if dist.is_initialized():
                 dist.all_reduce(sum_of_rows, group=get_process_subgroup())
-            Q /= sum_of_rows
+            Q /= sum_of_rows.clamp_min(torch.finfo(Q.dtype).eps)
             Q /= K
 
             # normalize each column: total weight per sample must be 1/B
-            Q /= torch.sum(Q, dim=0, keepdim=True)
+            Q /= torch.sum(Q, dim=0, keepdim=True).clamp_min(torch.finfo(Q.dtype).eps)
             Q /= B
 
         Q *= B  # the colomns must sum to 1 so that Q is an assignment
