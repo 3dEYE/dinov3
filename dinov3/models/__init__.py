@@ -15,6 +15,7 @@ from dinov3.layers.fp8_linear import convert_linears_to_fp8
 
 from . import vision_transformer as vits
 from . import convnext
+from . import convnextv2
 
 logger = logging.getLogger("dinov3")
 
@@ -64,6 +65,14 @@ def build_model(args, only_teacher=False, img_size=224, device=None):
             **vit_kwargs,
             drop_path_rate=args.drop_path_rate,
         )
+        embed_dim = student.embed_dim
+    elif "convnextv2" in args.arch or "convnext_v2" in args.arch:
+        convnextv2_cls = convnextv2.get_convnextv2_arch(args.arch)
+        convnextv2_kwargs = dict(patch_size=args.patch_size)
+        teacher = convnextv2_cls(**convnextv2_kwargs)
+        if only_teacher:
+            return teacher, teacher.embed_dim
+        student = convnextv2_cls(**convnextv2_kwargs)
         embed_dim = student.embed_dim
     elif "convnext" in args.arch:
         convnext_cls = convnext.get_convnext_arch(args.arch)
