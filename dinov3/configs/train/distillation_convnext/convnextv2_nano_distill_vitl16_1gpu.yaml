@@ -10,7 +10,7 @@ distillation:
 
 student:
   arch: convnextv2_nano
-  patch_size: 16
+  patch_size: 32
   drop_path_rate: 0.0
   block_chunks: 4
   fp8_enabled: false

@@ -447,7 +447,18 @@ class SSLMetaArch(nn.Module):
         ibot_patch = backbone_out["x_norm_patchtokens"]  # [n_crops * B, P, D]
 
         # IBOT head only on patches that are masked for the student
-        buffer = torch.index_select(ibot_patch.flatten(0, 1), dim=0, index=mask_indices_list)
+        flat_ibot_patch = ibot_patch.flatten(0, 1)
+        if mask_indices_list.numel() > 0:
+            max_valid = flat_ibot_patch.shape[0]
+            max_seen = int(mask_indices_list.max().item())
+            min_seen = int(mask_indices_list.min().item())
+            if min_seen < 0 or max_seen >= max_valid:
+                raise RuntimeError(
+                    "Mask indices are out of bounds for teacher patch tokens: "
+                    f"min={min_seen}, max={max_seen}, valid_range=[0, {max_valid - 1}]. "
+                    "Check student.patch_size and crop sizes in the training config."
+                )
+        buffer = torch.index_select(flat_ibot_patch, dim=0, index=mask_indices_list)
         masked_patch_after_head = self.teacher.ibot_head(buffer)
 
         # DINO head on CLS tokens
@@ -551,7 +562,18 @@ class SSLMetaArch(nn.Module):
         )
 
         # IBOT head only on masked patches
-        masked_patches_pre_head = torch.index_select(g_patch.flatten(0, 1), dim=0, index=mask_indices_list)
+        flat_g_patch = g_patch.flatten(0, 1)
+        if mask_indices_list.numel() > 0:
+            max_valid = flat_g_patch.shape[0]
+            max_seen = int(mask_indices_list.max().item())
+            min_seen = int(mask_indices_list.min().item())
+            if min_seen < 0 or max_seen >= max_valid:
+                raise RuntimeError(
+                    "Mask indices are out of bounds for student patch tokens: "
+                    f"min={min_seen}, max={max_seen}, valid_range=[0, {max_valid - 1}]. "
+                    "For ConvNeXtV2 on 224 crops, use student.patch_size=32 (7x7 tokens)."
+                )
+        masked_patches_pre_head = torch.index_select(flat_g_patch, dim=0, index=mask_indices_list)
         global_masked_patch_after_head = self.student.ibot_head(masked_patches_pre_head)
 
         # DINO head on CLS tokens (all in one pass)
