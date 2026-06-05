@@ -13,6 +13,8 @@ student:
   patch_size: 16
   drop_path_rate: 0.0
   block_chunks: 4
+  fp8_enabled: false
+  fp8_filter: blocks
 
 # ViT-L config uses 65536 prototypes for both DINO and iBOT heads.
 # These values must match for distillation asserts to pass.

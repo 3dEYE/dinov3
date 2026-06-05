@@ -274,7 +274,21 @@ def init_fsdp_model_from_checkpoint(
 ):
     if not Path(checkpoint_path).is_dir():  # PyTorch standard checkpoint
         logger.info(f"Loading pretrained weights from {checkpoint_path}")
-        chkpt = torch.load(checkpoint_path, map_location="cpu")["teacher"]
+        checkpoint = torch.load(checkpoint_path, map_location="cpu")
+        if "teacher" in checkpoint:
+            chkpt = checkpoint["teacher"]
+        elif isinstance(checkpoint, dict):
+            # Allow loading plain backbone checkpoints (e.g. hub checkpoints)
+            # that are not wrapped in a top-level "teacher" key.
+            chkpt = checkpoint
+        else:
+            raise RuntimeError(
+                f"Unsupported checkpoint format at {checkpoint_path}: expected a dict, "
+                f"got {type(checkpoint)}"
+            )
+
+        chkpt = {k.replace("module.", ""): v for k, v in chkpt.items()}
+        chkpt = {k.replace("backbone.", ""): v for k, v in chkpt.items()}
         from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 
         if process_group is None:

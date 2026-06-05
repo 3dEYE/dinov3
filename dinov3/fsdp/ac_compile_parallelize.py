@@ -144,11 +144,17 @@ def ac_compile_parallelize(
         raise NotImplementedError
 
     from dinov3.models.convnext import ConvNeXt
+    from dinov3.models.convnextv2 import ConvNeXtV2
     from dinov3.models.vision_transformer import DinoVisionTransformer
 
     # FSDP utils for each architecture type
     ARCH_TYPE_MAP = {
         ConvNeXt: dict(
+            compile_fn=compile_convnext,
+            fsdp_fn=fsdp_convnext,
+            activation_checkpointing_fn=activation_checkpoint_convnext,
+        ),
+        ConvNeXtV2: dict(
             compile_fn=compile_convnext,
             fsdp_fn=fsdp_convnext,
             activation_checkpointing_fn=activation_checkpoint_convnext,
