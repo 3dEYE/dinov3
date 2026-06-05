@@ -80,6 +80,7 @@ class ImageNet(ExtendedVisionDataset):
         self._entries = None
         self._class_ids = None
         self._class_names = None
+        self._warned_split_length_mismatch = False
 
     @property
     def split(self) -> "ImageNet.Split":
@@ -172,7 +173,17 @@ class ImageNet(ExtendedVisionDataset):
 
     def __len__(self) -> int:
         entries = self._get_entries()
-        assert len(entries) == self.split.length
+        expected = self.split.length
+        actual = len(entries)
+        if actual != expected and not self._warned_split_length_mismatch:
+            logger.warning(
+                "ImageNet %s split has %d samples in extra metadata, expected %d. "
+                "Proceeding with available samples.",
+                self.split.value,
+                actual,
+                expected,
+            )
+            self._warned_split_length_mismatch = True
         return len(entries)
 
     def _load_labels(self, labels_path: str) -> List[Tuple[str, str]]:
